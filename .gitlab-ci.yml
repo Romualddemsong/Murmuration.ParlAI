@@ -1,0 +1,51 @@
+
+stages:
+  - test 
+  - build
+
+variables:
+  IMAGE_TAG: $CI_REGISTRY_IMAGE/employee-image:$CI_COMMIT_REF_SLUG
+
+test:
+  image: clinicalgenomics/python3.8-venv
+  stage: test
+  before_script:
+    - python3.8 -m venv venv
+    - venv/bin/pip install --upgrade pip setuptools wheel
+    - apt-get update 
+    - apt-get install curl -y
+    - curl -OL https://github.com/scipy/scipy/archive/refs/tags/v1.12.0.tar.gz 
+    - tar -xvf v1.12.0.tar.gz    
+    - cd scipy-1.12.0
+    - chmod +x dev.py
+    - ls -al
+    - pip install click
+    - pip install doit
+    # - python3.8 dev.py develop
+    - apt-get install python3-pip -y
+    - pip install torch torchvision torchaudio
+    - /venv/bin/python -m pip install --upgrade pip
+    # - pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html
+    - pip install parlai 
+    - cd ..
+    - mkdir output/
+  script: 
+    - parlai display_data -t squad > output/squad_report.txt
+    - parlai eval_model -m ir_baseline -t personachat -dt valid > output/valid_report.txt
+    - parlai train_model -t personachat -m transformer/ranker -mf /tmp/model_tr6 --n-layers 1 --embedding-size 300 --ffn-size 600 --n-heads 4 --num-epochs 2 -veps 0.25 -bs 64 -lr 0.001 --dropout 0.1 --embedding-type fasttext_cc --candidates batch > output/batch_report.txt
+  artifacts:
+    when: always 
+    paths:
+      - output/
+
+build:
+  image: docker:latest
+  services:
+    - docker:bind
+  stage: build
+  before_script: 
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $IMAGE_TAG .
+    - docker images
+    - docker push $IMAGE_TAG
